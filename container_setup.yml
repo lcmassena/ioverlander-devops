@@ -1,0 +1,58 @@
+# Secure our server with a few reasonable default settings and install/configure docker.
+# https://ryaneschinger.com/blog/securing-a-server-with-ansible/
+- hosts: all
+  vars:
+    common_postgres_data: /data/pg_data/
+    common_postgres_user: user
+    common_postgres_password: 
+    common_mosh_from_port: 60000
+    common_mosh_to_port: 60010
+    required_packages:
+      - docker.io
+      - python-pip
+
+
+  tasks:
+  - name: Load secrets from vault
+    include_vars: "vars/secrets.yml"
+    no_log: true
+
+  - name: Install packages required for docker
+    become: yes
+    become_method: sudo
+    apt:
+        name: "{{ item }}"
+        state: present
+    with_items: "{{ required_packages }}"
+
+  - name: Install docker-py
+    become: yes
+    become_method: sudo
+    pip:
+        name: docker-py
+
+  - name: Pull postgres image
+    become: yes
+    become_method: sudo
+    docker_image:
+        name: postgres:9.6
+        state: present
+
+  - name: Create postgres db container
+    become: yes
+    become_method: sudo
+    docker_container:
+        name: postgres
+        image: postgres:9.6
+        state: started
+        volumes:
+             - "{{ common_postgres_data }}:/pgdata"
+        env:
+            POSTGRES_USER: user
+            POSTGRES_PASSWROD: "{{ server_postgres_password }}"
+            PGDATA: /pgdata
+
+ 
+
+
+

@@ -1,0 +1,122 @@
+# Secure our server with a few reasonable default settings and install/configure docker.
+# https://ryaneschinger.com/blog/securing-a-server-with-ansible/
+- hosts: all
+  vars:
+    common_LOGWATCH_EMAIL: iOverlander.com@gmail.com 
+    common_deploy_user_name: deploy
+    common_required_packages:
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - logwatch
+      - docker.io
+      - python-pip
+
+    common_ssh_port: 22
+    common_mosh_from_port: 60000
+    common_mosh_to_port: 60010
+
+  tasks:
+    - name: Load secrets from vault
+      include_vars: "vars/secrets.yml"
+      no_log: true
+
+    - name: Change root password
+      user: name=root password="{{ server_root_password|password_hash('sha512') }}"
+        
+    - name: Add deploy user
+      user: name={{ common_deploy_user_name }} password="{{ server_deploy_password|password_hash('sha512') }}" shell=/bin/bash
+
+    - name: Add authorized keys for deploy user
+      authorized_key: user={{ common_deploy_user_name }}
+                      key="{{ lookup('file', item) }}"
+      with_items:
+        - ssh_pub_keys/lucas_vogelsang.pub 
+
+    - name: Add deploy user to sudoers
+      lineinfile: dest=/etc/sudoers
+                  regexp="{{ common_deploy_user_name }} ALL"
+                  line="{{ common_deploy_user_name }} ALL=(ALL) ALL"
+                  state=present
+
+    - name: Ubuntu LTS minimal doesn't come with certain modules, required by ansible
+      raw: apt-get install  aptitude -y
+      become: true
+      become_user: root
+      become_method: sudo
+
+    - name: Update APT package cache
+      apt: update_cache=yes cache_valid_time=3600
+
+    - name: Upgrade APT to the latest packages
+      apt: upgrade=safe
+
+    - name: Adjust APT update intervals
+      copy: src=files/apt_periodic dest=/etc/apt/apt.conf.d/10periodic
+    
+    - name: Install required packages
+      apt: 
+          name: "{{ item }}"
+          state: present
+      with_items: "{{ common_required_packages }}"
+
+    - name: Allow SSH traffic
+      ufw: rule=allow port={{ common_ssh_port }} proto=tcp
+
+    - name: Allow mosh traffic
+      ufw: rule=allow proto=udp port={{ common_mosh_from_port }}:{{ common_mosh_to_port }}
+
+    - name: Allow HTTP traffic
+      ufw: rule=allow proto=tcp port=80
+
+    - name: Allow HTTPS traffic
+      ufw: rule=allow proto=tcp port=443
+
+    - name: Setup ufw
+      ufw: state=enabled policy=deny
+    
+    - name: Reload ufw
+      ufw: state=reloaded
+
+    - name: Set up Postfix to relay mail
+      debconf: name=postfix
+               question='{{ item.question }}'
+               value='{{ item.value }}'
+               vtype='{{ item.vtype }}'
+      with_items:
+        - { question: 'postfix/mailname', value: '{{ ansible_fqdn }}', vtype: 'string' }
+        - { question: 'postfix/main_mailer_type', value: 'Internet Site', vtype: 'string' }
+
+    - name: Email log summary daily
+      lineinfile: dest=/etc/cron.daily/00logwatch
+                  regexp="^/usr/sbin/logwatch"
+                  line="/usr/sbin/logwatch --output mail --mailto {{ common_LOGWATCH_EMAIL }} --detail high"
+                  state=present create=yes
+
+    - name: Change ssh port
+      lineinfile: dest=/etc/ssh/sshd_config
+                  regexp="^Port\s"
+                  line="Port {{ common_ssh_port }}"
+                  state=present
+      notify: Restart ssh
+
+    - name: Disallow password authentication
+      lineinfile: dest=/etc/ssh/sshd_config
+                  regexp="^PasswordAuthentication"
+                  line="PasswordAuthentication no"
+                  state=present
+      notify: Restart ssh
+
+    - name: Disallow root SSH access
+      lineinfile: dest=/etc/ssh/sshd_config
+                  regexp="^PermitRootLogin"
+                  line="PermitRootLogin no"
+                  state=present
+      notify: Restart ssh
+
+    - name: Ensure docker is started
+      service: name=docker state=restarted
+
+  handlers:
+    - name: Restart ssh
+      service: name=ssh state=restarted

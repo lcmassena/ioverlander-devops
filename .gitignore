@@ -1,0 +1,9 @@
+*.retry
+
+.vault_pwd
+.env
+node_modules
+npm-debug.log
+tmp/
+.DS_STORE
+
