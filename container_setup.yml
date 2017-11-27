@@ -1,16 +1,21 @@
-# Secure our server with a few reasonable default settings and install/configure docker.
-# https://ryaneschinger.com/blog/securing-a-server-with-ansible/
 - hosts: all
   vars:
     common_postgres_data: /data/pg_data/
     common_postgres_user: user
-    common_postgres_password: 
-    common_mosh_from_port: 60000
-    common_mosh_to_port: 60010
+    common_postgres_password: password
+    common_postgres_backup_target: /data/pg_backups
+    common_haproxy_config: /data/haproxy/
+
     required_packages:
       - docker.io
       - python-pip
+      - s3cmd
 
+    docker_images:
+        - "postgres:9.6"
+        - "ioverlanderapp/ioverlander-server:latest"
+        - "nginx"
+        - "haproxy"
 
   tasks:
   - name: Load secrets from vault
@@ -31,11 +36,61 @@
     pip:
         name: docker-py
 
-  - name: Pull postgres image
+  - name: Ensure docker is started
+    become: yes
+    become_method: sudo
+    service: name=docker state=restarted
+
+  - name: Create folders for s3cmd
+    become: yes
+    become_method: sudo
+    file: 
+        path: /etc/s3conf
+        state: directory
+
+  - name: Create folders for data
+    become: yes
+    become_method: sudo
+    file: 
+        path: /data
+        state: directory
+
+  - name: Copy haproxy configuration
+    become: yes
+    become_method: sudo
+    copy: src=files/haproxy dest=/data/
+
+  - name: Upload s3cmd config
+    become: yes
+    become_method: sudo
+    template:
+       src: files/s3conf.cfg
+       dest: /etc/s3conf/s3conf.cfg
+       owner: root
+       mode: "u=rw"
+
+  - name: Upload s3 backup script
+    become: yes
+    become_method: sudo
+    template:
+        src: files/backup_nightly.sh
+        dest: /root/backup.sh
+        owner: root
+        mode: "u=rwx"
+
+  - name: Pull images
     become: yes
     become_method: sudo
     docker_image:
-        name: postgres:9.6
+        name: "{{ item }}"
+        state: present
+    with_items: "{{ docker_images }}"
+
+  - name: Create container network
+    become: yes
+    become_method: sudo
+    docker_network:
+        name: network
         state: present
 
   - name: Create postgres db container
@@ -47,12 +102,48 @@
         state: started
         volumes:
              - "{{ common_postgres_data }}:/pgdata"
+             - "{{ common_postgres_backup_target}}:/backup"
         env:
-            POSTGRES_USER: user
-            POSTGRES_PASSWROD: "{{ server_postgres_password }}"
+            POSTGRES_USER: "{{ common_postgres_user }}"
+            POSTGRES_PASSWORD: "{{ common_postgres_password }}"
             PGDATA: /pgdata
-
+        networks: 
+            - name: network
  
+  - name: Create iol-server container
+    become: yes
+    become_method: sudo
+    docker_container: 
+        name: ioverlander
+        image: ioverlanderapp/ioverlander-server:latest
+        pull: true
+        state: started
+        env:
+            DB_USERNAME: "{{ common_postgres_user }}"
+            DB_PASSWORD: "{{ common_postgres_password }}"
+            DB_HOSTNAME: "postgres"
+            SESSION_SECRET: "{{ session_secret }}"
+            NODE_ENV: staging
+        networks: 
+            - name: network
+              links: 
+                - postgres
 
-
-
+  - name: Create haproxy
+    become: yes
+    become_method: sudo
+    docker_container: 
+        name: haproxy
+        image: haproxy
+        state: started
+        recreate: yes
+        volumes:
+            - "{{ common_haproxy_config }}:/usr/local/etc/haproxy:ro"
+        published_ports:
+            - 0.0.0.0:80:80
+        networks: 
+            - name: network
+              links: 
+                - staticassets
+                - ioverlander
+ 

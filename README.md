@@ -57,3 +57,9 @@ To add an admin's ssh credentials follow the these steps:
      }
      ```
 All done!
+
+Running an ansible script
+=========================
+```
+ansible-playbook -i inv.ini container_setup.yml --vault-password-file=.vault_pwd -e@vars/secrets.yml
+```

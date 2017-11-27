@@ -1,4 +1,4 @@
-# Secure our server with a few reasonable default settings and install/configure docker.
+# Secure our server with a few reasonable default settings
 # https://ryaneschinger.com/blog/securing-a-server-with-ansible/
 - hosts: all
   vars:
@@ -9,7 +9,6 @@
       - fail2ban
       - unattended-upgrades
       - logwatch
-      - docker.io
       - python-pip
 
     common_ssh_port: 22
@@ -113,9 +112,6 @@
                   line="PermitRootLogin no"
                   state=present
       notify: Restart ssh
-
-    - name: Ensure docker is started
-      service: name=docker state=restarted
 
   handlers:
     - name: Restart ssh
