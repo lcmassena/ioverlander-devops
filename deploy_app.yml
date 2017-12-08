@@ -1,0 +1,28 @@
+- hosts: all
+  vars:
+    common_postgres_user: user
+    common_postgres_password: password
+
+  tasks:
+  - name: Load secrets from vault
+    include_vars: "vars/secrets.yml"
+    no_log: true
+
+  - name: Deploy iol-server container
+    become: yes
+    become_method: sudo
+    docker_container: 
+        name: ioverlander
+        image: ioverlanderapp/ioverlander-server:latest
+        pull: true
+        state: started
+        env:
+            DB_USERNAME: "{{ common_postgres_user }}"
+            DB_PASSWORD: "{{ common_postgres_password }}"
+            DB_HOSTNAME: "postgres"
+            SESSION_SECRET: "{{ session_secret }}"
+            NODE_ENV: staging
+        networks: 
+            - name: network
+              links: 
+                - postgres
