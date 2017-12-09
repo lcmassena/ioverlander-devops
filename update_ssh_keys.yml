@@ -1,0 +1,14 @@
+- hosts: all
+  user: deploy
+  become: yes
+  become_method: sudo
+  tasks:
+  - name: Load global vars
+      include_vars: "vars/globals.yml"
+
+  - name: Add authorized keys for deploy user
+    authorized_key: user={{ common_deploy_user_name }}
+                    key="{{ssh_keys}}"
+                    exclusive=yes
+
+ 

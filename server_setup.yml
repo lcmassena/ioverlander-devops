@@ -3,19 +3,20 @@
 - hosts: all
   vars:
     common_LOGWATCH_EMAIL: iOverlander.com@gmail.com 
-    common_deploy_user_name: deploy
     common_required_packages:
       - ufw
       - fail2ban
       - unattended-upgrades
       - logwatch
-      - python-pip
 
     common_ssh_port: 22
     common_mosh_from_port: 60000
     common_mosh_to_port: 60010
 
   tasks:
+    - name: Load global vars
+      include_vars: "vars/globals.yml"
+
     - name: Load secrets from vault
       include_vars: "vars/secrets.yml"
       no_log: true
@@ -28,9 +29,8 @@
 
     - name: Add authorized keys for deploy user
       authorized_key: user={{ common_deploy_user_name }}
-                      key="{{ lookup('file', item) }}"
-      with_items:
-        - ssh_pub_keys/lucas_vogelsang.pub 
+                      key="{{ssh_keys}}"
+                      exclusive=yes
 
     - name: Add deploy user to sudoers
       lineinfile: dest=/etc/sudoers
@@ -40,9 +40,6 @@
 
     - name: Ubuntu LTS minimal doesn't come with certain modules, required by ansible
       raw: apt-get install  aptitude -y
-      become: true
-      become_user: root
-      become_method: sudo
 
     - name: Update APT package cache
       apt: update_cache=yes cache_valid_time=3600

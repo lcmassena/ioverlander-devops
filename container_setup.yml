@@ -1,11 +1,8 @@
 - hosts: all
-  vars:
-    common_postgres_data: /data/pg_data/
-    common_postgres_user: user
-    common_postgres_password: password
-    common_postgres_backup_target: /data/pg_backups
-    common_haproxy_config: /data/haproxy/
+  become: yes
+  become_method: sudo
 
+  vars:
     required_packages:
       - docker.io
       - python-pip
@@ -14,7 +11,6 @@
     docker_images:
         - "postgres:9.6"
         - "ioverlanderapp/ioverlander-server:latest"
-        - "nginx"
         - "haproxy"
 
   tasks:
@@ -23,46 +19,32 @@
     no_log: true
 
   - name: Install packages required for docker
-    become: yes
-    become_method: sudo
     apt:
         name: "{{ item }}"
         state: present
     with_items: "{{ required_packages }}"
 
   - name: Install docker-py
-    become: yes
-    become_method: sudo
     pip:
         name: docker-py
 
   - name: Ensure docker is started
-    become: yes
-    become_method: sudo
     service: name=docker state=restarted
 
   - name: Create folders for s3cmd
-    become: yes
-    become_method: sudo
     file: 
         path: /etc/s3conf
         state: directory
 
   - name: Create folders for data
-    become: yes
-    become_method: sudo
     file: 
         path: /data
         state: directory
 
   - name: Copy haproxy configuration
-    become: yes
-    become_method: sudo
     copy: src=files/haproxy dest=/data/
 
   - name: Upload s3cmd config
-    become: yes
-    become_method: sudo
     template:
        src: files/s3conf.cfg
        dest: /etc/s3conf/s3conf.cfg
@@ -70,8 +52,6 @@
        mode: "u=rw"
 
   - name: Upload s3 backup script
-    become: yes
-    become_method: sudo
     template:
         src: files/backup_nightly.sh
         dest: /root/backup.sh
@@ -79,23 +59,17 @@
         mode: "u=rwx"
 
   - name: Pull images
-    become: yes
-    become_method: sudo
     docker_image:
         name: "{{ item }}"
         state: present
     with_items: "{{ docker_images }}"
 
   - name: Create container network
-    become: yes
-    become_method: sudo
     docker_network:
         name: network
         state: present
 
   - name: Create postgres db container
-    become: yes
-    become_method: sudo
     docker_container:
         name: postgres
         image: postgres:9.6
@@ -111,8 +85,6 @@
             - name: network
  
   - name: Create iol-server container
-    become: yes
-    become_method: sudo
     docker_container: 
         name: ioverlander
         image: ioverlanderapp/ioverlander-server:latest
@@ -130,8 +102,6 @@
                 - postgres
 
   - name: Create haproxy
-    become: yes
-    become_method: sudo
     docker_container: 
         name: haproxy
         image: haproxy
